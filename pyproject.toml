@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pimpmykernel"
+version = "0.1.8"
+description = "Ein verständlicher Desktop-Assistent für selbst gebaute Linux-Kernel"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "GPL-3.0-or-later"}
+dependencies = ["PyQt6>=6.4,<7"]
+
+[project.scripts]
+pimpmykernel = "pimpmykernel.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/Massefehler/PimpMyKernel"
+Issues = "https://github.com/Massefehler/PimpMyKernel/issues"
+
+[tool.setuptools.packages.find]
+include = ["pimpmykernel*"]
+
+[tool.setuptools.package-data]
+pimpmykernel = ["assets/*.svg", "assets/*.png", "assets/i18n/*.json"]

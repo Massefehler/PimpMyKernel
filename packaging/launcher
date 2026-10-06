@@ -1,0 +1,8 @@
+#!/usr/bin/python3
+"""Systemweiter Einstiegspunkt des Debian-Pakets."""
+import sys
+
+sys.path.insert(0, "/usr/lib/pimpmykernel")
+from pimpmykernel.__main__ import main
+
+sys.exit(main())

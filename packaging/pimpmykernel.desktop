@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=PimpMyKernel
+Comment=Select, build and install Linux kernels as Debian packages
+Comment[de]=Linux-Kernel auswählen, bauen und als Debian-Pakete installieren
+Comment[es]=Seleccionar, compilar e instalar kernels de Linux como paquetes Debian
+Exec=pimpmykernel
+Icon=pimpmykernel
+Terminal=false
+Categories=System;
+Keywords=Linux;Kernel;Update;Debian;Ubuntu;
+StartupNotify=true
+StartupWMClass=PimpMyKernel

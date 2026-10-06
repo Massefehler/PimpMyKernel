@@ -1,0 +1,11 @@
+Bitte bau mir ein Kernl updater als modernes GUI-Tool für Normalanwender - PimpMyKernel.
+Das Tool soll kernel.org nach den neusten Kernel prüfen und dann anbieten.
+Bei der Kernelerstellung dann:
+ls /boot -> letzte config kopieren
+sudo cp /boot/config-xyz .config
+make oldconfig
+make (dann nproc und Auswahl -j8, 10,12,16 - je nachdem was die CPU hergibt)
+dann make bindeb-pkg -> und Auswahl -j8, 10,12,16 - je nachdem was die CPU hergibt.
+am Ende *.deb files in beliebiges Verzeichnis kopieren.
+Aufräumen -> kernel-zip-file und den Arbeitsordner (compile) löschen
+und installation anbieten.
