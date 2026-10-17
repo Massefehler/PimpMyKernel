@@ -18,18 +18,22 @@ Download the application package from
 and run this command in the download directory:
 
 ```bash
-sudo apt install ./pimpmykernel_0.1.8_all.deb
+sudo apt install ./pimpmykernel_0.2.0_all.deb
 ```
 
 Open **PimpMyKernel** from the application menu or run `pimpmykernel`.
 Start the interface as your regular user. A graphical administrator prompt
 appears when an action requires elevated privileges.
 
+Application updates automatically refresh the Python program cache, including
+leftovers from older releases. Close and reopen PimpMyKernel after installing
+an update. A system restart is not required.
+
 To build the application package from source:
 
 ```bash
 ./build-deb.sh
-sudo apt install ./dist/pimpmykernel_0.1.8_all.deb
+sudo apt install ./dist/pimpmykernel_0.2.0_all.deb
 ```
 
 The packaging script uses Python and `dpkg-deb`, requires no root privileges
@@ -155,7 +159,17 @@ still shows all changes relative to the original file.
 The **Installed kernels** page reads installed packages from the Debian package
 database. Each kernel shows its version, associated packages and installed size.
 Select older kernels using the checkboxes, then choose **Uninstall selected
-kernels** to remove them.
+kernels** to remove them. APT uses **`purge`**, which removes the selected
+packages including their package configuration files. The confirmation dialog
+explicitly describes this.
+
+Previously removed kernel packages with dpkg status **`config-files`** appear as
+**Configuration leftovers** and can be selected for cleanup. This also covers
+residual module packages whose kernel image has already been fully removed.
+These entries do not count as installed fallback kernels; the last actually
+installed kernel remains protected. The `config-files` state can also indicate
+only remaining package maintenance scripts, rather than an existing
+`/boot/config-*` file. Those files are normally regular kernel package content.
 
 The running kernel has a visible **“This kernel is currently running and cannot
 be removed.”** note and cannot be selected for removal. Hovering over the entry
@@ -166,7 +180,7 @@ removed with a selected kernel. Shared headers and tools required by other
 installed kernels are retained; general packages such as `linux-libc-dev`
 are never removed.
 
-Before confirmation, an APT simulation checks the exact package list. If APT
+Before confirmation, an APT purge simulation checks the exact package list. If APT
 would remove additional packages, such as meta-packages for automatic
 distribution kernel updates, the operation is stopped with an explanation.
 The confirmation dialog shows the complete package list. Removal proceeds
@@ -257,7 +271,7 @@ checkout. This is unnecessary when installing the `.deb` package.
 ./start.sh --list-releases
 QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
 ./build-deb.sh
-dpkg-deb --info dist/pimpmykernel_0.1.8_all.deb
+dpkg-deb --info dist/pimpmykernel_0.2.0_all.deb
 ```
 
 Tests cover the complete workflow with a local test kernel and small real
@@ -266,7 +280,9 @@ process cancellation, download percentages and Qt interactions. Archive tests
 cover signed file pairs, version sorting, all kernel series, combined filters,
 cancellation and retries after loading errors. Kernel management uses local
 package data and simulated APT plans, including protection for the running and
-last kernel and shared headers. Tests do not install or uninstall kernels.
+last kernel and shared headers. Tests also cover purging package configuration
+files and cleaning up old `config-files` entries without weakening protection
+of the last installed kernel. Tests do not install or uninstall kernels.
 Menuconfig tests exercise a real terminal channel with keyboard input, errors,
 early terminal closure, cancellation including child processes, review before
 compilation and export of the manually selected configuration.
@@ -274,6 +290,12 @@ Language tests check complete German, English and Spanish messages, unchanged
 placeholders, automatic detection and saved choices after restarting. They
 also cover translated kernel-protection messages, standard dialogs and
 terminal notices.
+
+Packaging tests build and extract the real application `.deb` and run its
+installation and removal scripts in a temporary directory. They reproduce an
+upgrade with identical source timestamps and sizes, verify that stale Python
+bytecode is replaced, and check that cleanup preserves source files and exports.
+These checks do not install the application on the host system.
 
 The optional `python3 tests/live_prepare.py --config /boot/config-<version>`
 check downloads a real kernel, verifies its release signature and applies the

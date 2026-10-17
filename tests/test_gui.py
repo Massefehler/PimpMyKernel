@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QLocale, QSettings, QTimer, Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
+from PyQt6.QtWidgets import QApplication, QDialog, QLabel, QMessageBox
 
 from pimpmykernel.build import BuildResult, create_workspace
 from pimpmykernel.i18n import language
@@ -354,12 +354,43 @@ class GuiTests(GermanTestCase):
 
     def test_remove_dialog_requires_deliberate_selection(self):
         dialog = RemoveKernelsDialog(PLAN, SYSTEM.kernel, self.window)
+        self.assertIn("Konfigurationsdateien", " ".join(
+            label.text() for label in dialog.findChildren(QLabel)))
         self.assertFalse(dialog.remove.isEnabled())
         dialog.accept_box.setChecked(True)
         self.assertTrue(dialog.remove.isEnabled())
         dialog.accept_box.setChecked(False)
         self.assertFalse(dialog.remove.isEnabled())
         dialog.deleteLater()
+
+    def test_residuals_are_selectable_and_do_not_unlock_the_last_installed_kernel(self):
+        residual = InstalledKernel("6.11.0-21-generic", ("linux-modules-6.11.0-21-generic",),
+                                   0, False, installed=False)
+        last = InstalledKernel(KERNELS[1].release, PLAN.packages, 1024, False)
+        self.window.on_installed_kernels([last, residual])
+        self.assertFalse(self.window.kernel_list.item(0).flags() & Qt.ItemFlag.ItemIsUserCheckable)
+        self.assertIn("letzter installierter Kernel", self.window.kernel_list.item(0).text())
+        self.assertIn("Konfigurationsreste", self.window.kernel_list.item(1).text())
+        self.assertIn("1 installierter Kernel", self.window.kernel_count.text())
+        self.assertIn("1 Eintrag mit Konfigurationsresten", self.window.kernel_count.text())
+        self.window.kernel_list.item(0).setCheckState(Qt.CheckState.Checked)
+        self.window.kernel_list.item(1).setCheckState(Qt.CheckState.Checked)
+        self.assertEqual(self.window.selected_kernel_releases(), (residual.release,))
+        self.assertTrue(self.window.remove_kernels_button.isEnabled())
+
+        self.window.on_installed_kernels([residual])
+        self.window.kernel_list.item(0).setCheckState(Qt.CheckState.Checked)
+        self.assertEqual(self.window.selected_kernel_releases(), (residual.release,))
+        self.assertTrue(self.window.remove_kernels_button.isEnabled())
+
+    def test_running_kernel_residuals_remain_protected(self):
+        residual = InstalledKernel(SYSTEM.kernel, (f"linux-modules-{SYSTEM.kernel}",),
+                                   0, True, installed=False)
+        self.window.on_installed_kernels([KERNELS[1], residual])
+        item = self.window.kernel_list.item(1)
+        self.assertFalse(item.flags() & Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Checked)
+        self.assertEqual(self.window.selected_kernel_releases(), ())
 
     def test_rejected_removal_preview_never_runs_a_privileged_command(self):
         self.show_kernel_selection()

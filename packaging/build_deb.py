@@ -57,6 +57,11 @@ def main() -> int:
         size = sum(p.stat().st_size for p in package.rglob("*") if p.is_file())
         control = package / "DEBIAN"
         control.mkdir()
+        executables = {binary}
+        for name in ("postinst", "prerm"):
+            script = control / name
+            shutil.copyfile(root / "packaging" / name, script)
+            executables.add(script)
         (control / "control").write_text(
             f"Package: pimpmykernel\nVersion: {version}\nArchitecture: all\n"
             "Maintainer: PimpMyKernel Project <noreply@localhost>\n"
@@ -72,7 +77,7 @@ def main() -> int:
         # Uniform reproducible metadata; root ownership is stored in the archive only.
         epoch = int(os.environ.get("SOURCE_DATE_EPOCH", "1791158400"))
         for path in package.rglob("*"):
-            path.chmod(0o755 if path.is_dir() or path == binary else 0o644)
+            path.chmod(0o755 if path.is_dir() or path in executables else 0o644)
             os.utime(path, (epoch, epoch))
         os.utime(package, (epoch, epoch))
         partial = output / (target.name + ".part")

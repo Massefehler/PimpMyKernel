@@ -280,9 +280,18 @@ class EnglishGuiTests(unittest.TestCase):
         dialog = RemoveKernelsDialog(gui_fixture.PLAN, gui_fixture.SYSTEM.kernel, self.window)
         self.addCleanup(dialog.deleteLater)
         self.assertEqual(dialog.windowTitle(), "Uninstall kernel")
+        self.assertIn("including their configuration files", " ".join(
+            label.text() for label in dialog.findChildren(QLabel)))
         self.assertFalse(dialog.remove.isEnabled())
         dialog.accept_box.setChecked(True)
         self.assertTrue(dialog.remove.isEnabled())
+        residual = gui_fixture.InstalledKernel("6.11.0-21-generic",
+                                               ("linux-modules-6.11.0-21-generic",),
+                                               0, False, installed=False)
+        self.window.on_installed_kernels([*gui_fixture.KERNELS, residual])
+        self.assertIn("Configuration leftovers", self.window.kernel_list.item(2).text())
+        self.assertEqual(self.window.kernel_count.text(),
+                         "2 installed kernels · 1 entry with configuration leftovers")
 
     def test_review_dialog_and_latest_kernel_notice_are_english(self):
         self.window.on_releases([gui_fixture.release("7.2.8")])
@@ -360,9 +369,18 @@ class SpanishGuiTests(unittest.TestCase):
         dialog = RemoveKernelsDialog(gui_fixture.PLAN, gui_fixture.SYSTEM.kernel, self.window)
         self.addCleanup(dialog.deleteLater)
         self.assertEqual(dialog.windowTitle(), "Desinstalar kernel")
+        self.assertIn("archivos de configuración", " ".join(
+            label.text() for label in dialog.findChildren(QLabel)))
         self.assertFalse(dialog.remove.isEnabled())
         dialog.accept_box.setChecked(True)
         self.assertTrue(dialog.remove.isEnabled())
+        residual = gui_fixture.InstalledKernel("6.11.0-21-generic",
+                                               ("linux-modules-6.11.0-21-generic",),
+                                               0, False, installed=False)
+        self.window.on_installed_kernels([*gui_fixture.KERNELS, residual])
+        self.assertIn("Restos de configuración", self.window.kernel_list.item(2).text())
+        self.assertEqual(self.window.kernel_count.text(),
+                         "2 kernels instalados · 1 entrada con restos de configuración")
 
     def test_menuconfig_review_and_latest_kernel_notice_are_spanish(self):
         self.window.on_releases([gui_fixture.release("7.2.8")])

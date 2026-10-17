@@ -8,6 +8,8 @@
 - Das bereitgestellte Appicon ist `icon/PimpMyKernel.png`; die Laufzeitkopie
   liegt unter `pimpmykernel/assets/icon.png`.
 - Version in `pimpmykernel/__init__.py` und `pyproject.toml` konsistent halten.
+- Die Patch-Ziffer läuft von 0 bis 9. Auf `0.1.9` folgt `0.2.0`, auf
+  `0.2.9` folgt `0.3.0`; keine Patch-Version `.10` verwenden.
 - Kernel-Builds laufen als normaler Benutzer. Privilegierte Aktionen sind auf
   Konfigurationslesen, Build-Abhängigkeiten und die bewusst gewählte Installation
   beschränkt. Den eigenen Arbeitsbereich automatisch erst nach erfolgreichem

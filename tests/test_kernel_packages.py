@@ -33,7 +33,7 @@ def apt_output(packages):
 
 
 class KernelPackageTests(GermanTestCase):
-    def test_only_installed_versioned_images_form_kernel_groups(self):
+    def test_only_supported_installed_kernels_and_residuals_form_kernel_groups(self):
         extras = (
             "linux-image-generic\tinstalled\t1\t10\n"
             "linux-image-6.12-amd64\tinstalled\t1\t10\n"
@@ -46,7 +46,9 @@ class KernelPackageTests(GermanTestCase):
             "malformed row\n"
         )
         kernels = group_installed_kernels(parse_kernel_packages(SNAPSHOT + "\n" + extras), RUNNING)
-        self.assertEqual([kernel.release for kernel in kernels], [RUNNING, LOWLATENCY, GENERIC])
+        self.assertEqual([kernel.release for kernel in kernels],
+                         [RUNNING, LOWLATENCY, GENERIC, "6.7.0-5-generic"])
+        self.assertFalse(kernels[-1].installed)
         self.assertTrue(kernels[0].active)
         self.assertIn("linux-image-7.2.9-pmk-dbg", kernels[0].packages)
         self.assertEqual(kernels[0].installed_bytes, 300 * 1024)
@@ -63,6 +65,65 @@ class KernelPackageTests(GermanTestCase):
         self.assertEqual([kernel.release for kernel in kernels],
                          ["7.2.10-pmk", "7.2.9-pmk", "6.8.0-31-generic", "6.8.0-9-generic"])
         self.assertEqual(kernels[0].installed_bytes, 0)
+
+    def test_removed_kernel_modules_remain_available_for_configuration_cleanup(self):
+        residual = "6.11.0-21-generic"
+        snapshot = (*PACKAGES, *parse_kernel_packages("\n".join(
+            f"{name}\tconfig-files\t1\t100" for name in (
+                f"linux-modules-{residual}", f"linux-modules-extra-{residual}"))))
+        kernels = {kernel.release: kernel for kernel in group_installed_kernels(snapshot, RUNNING)}
+        self.assertFalse(kernels[residual].installed)
+        self.assertEqual(kernels[residual].installed_bytes, 0)
+        plan = create_removal_plan([residual], snapshot, RUNNING)
+        self.assertEqual(plan.packages, (f"linux-modules-{residual}",
+                                         f"linux-modules-extra-{residual}"))
+        with patch("pimpmykernel.kernel_packages.query_kernel_packages", return_value=snapshot), \
+                patch("pimpmykernel.kernel_packages.platform.release", return_value=RUNNING):
+            self.assertEqual(validate_removal_packages(list(plan.packages)), plan)
+
+    def test_residual_packages_are_included_with_their_installed_kernel(self):
+        snapshot = (*PACKAGES, *parse_kernel_packages(
+            f"linux-cloud-tools-{GENERIC}\tconfig-files\t1\t100"))
+        plan = create_removal_plan([GENERIC], snapshot, RUNNING)
+        self.assertIn(f"linux-cloud-tools-{GENERIC}", plan.packages)
+        self.assertEqual(plan.installed_bytes, 6 * 100 * 1024)
+
+    def test_residual_images_do_not_count_as_an_installed_fallback_kernel(self):
+        snapshot = parse_kernel_packages(
+            f"linux-image-{RUNNING}\tinstalled\t1\t100\n"
+            f"linux-image-{GENERIC}\tconfig-files\t1\t100")
+        with self.assertRaisesRegex(ValueError, "Mindestens"):
+            create_removal_plan([RUNNING], snapshot, "external-kernel")
+        self.assertEqual(create_removal_plan([GENERIC], snapshot, RUNNING).packages,
+                         (f"linux-image-{GENERIC}",))
+
+    def test_residuals_can_be_purged_without_any_installed_image_but_not_for_running_kernel(self):
+        snapshot = parse_kernel_packages(
+            f"linux-modules-{GENERIC}\tconfig-files\t1\t100")
+        self.assertEqual(create_removal_plan([GENERIC], snapshot, "external-kernel").packages,
+                         (f"linux-modules-{GENERIC}",))
+        with self.assertRaisesRegex(ValueError, "laufende"):
+            create_removal_plan([GENERIC], snapshot, GENERIC)
+
+    def test_orphaned_shared_header_residuals_can_be_purged(self):
+        for release in ("6.8.0-31", "6.12.111+deb13-common", "6.12.111+deb13-common-rt"):
+            with self.subTest(release=release):
+                name = f"linux-headers-{release}"
+                snapshot = parse_kernel_packages(f"{name}\tconfig-files\t1\t100")
+                kernels = group_installed_kernels(snapshot, "external-kernel")
+                self.assertEqual(len(kernels), 1)
+                self.assertEqual(kernels[0].packages, (name,))
+                self.assertFalse(kernels[0].installed)
+                self.assertEqual(create_removal_plan([release], snapshot, "external-kernel").packages,
+                                 (name,))
+
+    def test_shared_residual_headers_are_kept_for_an_installed_flavour(self):
+        snapshot = parse_kernel_packages(
+            f"linux-image-{GENERIC}\tconfig-files\t1\t100\n"
+            f"linux-image-{LOWLATENCY}\tinstalled\t1\t100\n"
+            "linux-headers-6.8.0-31\tconfig-files\t1\t100")
+        self.assertEqual(create_removal_plan([GENERIC], snapshot, LOWLATENCY).packages,
+                         (f"linux-image-{GENERIC}",))
 
     def test_shared_packages_are_kept_until_all_their_flavours_are_removed(self):
         plan = create_removal_plan([GENERIC], PACKAGES, RUNNING)
@@ -149,9 +210,12 @@ class KernelPackageTests(GermanTestCase):
     def test_apt_simulation_must_remove_exactly_the_expected_packages(self):
         plan = create_removal_plan([GENERIC], PACKAGES, RUNNING)
         validate_apt_removal(apt_output(plan.packages), plan.packages)
+        validate_apt_removal(apt_output(plan.packages).replace("Remv ", "Purg "), plan.packages)
         validate_apt_removal(apt_output(tuple(name + ":amd64" for name in plan.packages)), plan.packages)
         for output, error in (
                 (apt_output(plan.packages) + "\nRemv linux-image-generic-hwe-24.04 [1.0]", "weitere Pakete"),
+                (apt_output(plan.packages).replace("Remv ", "Purg ") +
+                 "\nPurg linux-image-generic-hwe-24.04 [1.0]", "weitere Pakete"),
                 (apt_output(plan.packages[:-1]), "Auswahl"),
                 (apt_output(plan.packages) + "\nInst linux-image-new [1.0]", "installieren"),
                 (apt_output(plan.packages) + "\nConf linux-image-new [1.0]", "einrichten")):
@@ -166,7 +230,7 @@ class KernelPackageTests(GermanTestCase):
                 patch("pimpmykernel.kernel_packages.subprocess.run", return_value=response) as run:
             self.assertEqual(plan_kernel_removal([GENERIC]), plan)
         self.assertEqual(run.call_args.args[0],
-                         ["/usr/bin/apt-get", "--simulate", "--no-auto-remove", "remove", "--", *plan.packages])
+                         ["/usr/bin/apt-get", "--simulate", "--no-auto-remove", "purge", "--", *plan.packages])
         self.assertEqual(run.call_args.kwargs["env"]["LC_ALL"], "C")
 
     def test_failed_apt_simulation_is_reported(self):
@@ -178,12 +242,12 @@ class KernelPackageTests(GermanTestCase):
 
 
 class PrivilegedRemovalTests(GermanTestCase):
-    def run_helper(self, plan, simulation_error=None):
+    def run_helper(self, plan, simulation_error=None, *, packages=PACKAGES):
         with patch.dict(os.environ), patch.object(sys, "path", sys.path.copy()), \
                 patch.object(sys, "argv", ["privileged.py", "remove", *plan.packages]), \
                 patch("pimpmykernel.privileged.os.geteuid", return_value=0), \
                 patch("pimpmykernel.privileged.os.umask"), \
-                patch("pimpmykernel.kernel_packages.query_kernel_packages", return_value=PACKAGES), \
+                patch("pimpmykernel.kernel_packages.query_kernel_packages", return_value=packages), \
                 patch("pimpmykernel.kernel_packages.platform.release", return_value=RUNNING), \
                 patch("pimpmykernel.kernel_packages.simulate_removal", side_effect=simulation_error) as simulate, \
                 patch("pimpmykernel.privileged.subprocess.call", return_value=0) as call:
@@ -199,13 +263,23 @@ class PrivilegedRemovalTests(GermanTestCase):
         simulate, call = self.run_helper(plan)
         simulate.assert_called_once_with(plan)
         call.assert_called_once_with(["/usr/bin/apt-get", "--yes", "--no-auto-remove",
-                                      "remove", "--", *plan.packages])
+                                      "purge", "--", *plan.packages])
 
     def test_changed_dependencies_prevent_actual_removal(self):
         plan = create_removal_plan([GENERIC], PACKAGES, RUNNING)
         simulate, call = self.run_helper(plan, ValueError("APT würde weitere Pakete entfernen"))
         simulate.assert_called_once_with(plan)
         call.assert_not_called()
+
+    def test_confirmed_module_residual_cleanup_is_revalidated_and_purged(self):
+        residual = "6.11.0-21-generic"
+        snapshot = (*PACKAGES, *parse_kernel_packages(
+            f"linux-modules-{residual}\tconfig-files\t1\t100"))
+        plan = create_removal_plan([residual], snapshot, RUNNING)
+        simulate, call = self.run_helper(plan, packages=snapshot)
+        simulate.assert_called_once_with(plan)
+        call.assert_called_once_with(["/usr/bin/apt-get", "--yes", "--no-auto-remove",
+                                      "purge", "--", *plan.packages])
 
 
 if __name__ == "__main__":

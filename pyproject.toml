@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pimpmykernel"
-version = "0.1.8"
+version = "0.2.0"
 description = "Ein verständlicher Desktop-Assistent für selbst gebaute Linux-Kernel"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -32,6 +32,7 @@ class KernelPackage:
     kind: str
     release: str
     image: bool
+    installed: bool = True
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ class InstalledKernel:
     packages: tuple[str, ...]
     installed_bytes: int
     active: bool
+    installed: bool = True
 
 
 @dataclass(frozen=True)
@@ -53,9 +55,10 @@ def parse_kernel_packages(output: str) -> tuple[KernelPackage, ...]:
     packages = []
     for line in output.splitlines():
         fields = line.split("\t")
-        if len(fields) != 4 or fields[1] != "installed":
+        if len(fields) != 4 or fields[1] not in {"installed", "config-files"}:
             continue
-        name, _, version, size = fields
+        name, status, version, size = fields
+        installed = status == "installed"
         if not re.fullmatch(r"[a-z0-9+.-]+(?::[a-z0-9]+)?", name):
             continue
         match = PACKAGE_RE.fullmatch(name.split(":", 1)[0])
@@ -69,11 +72,11 @@ def parse_kernel_packages(output: str) -> tuple[KernelPackage, ...]:
             # Debian places "unsigned" at the end, Ubuntu after "image".
             release = release.removesuffix("-unsigned")
         try:
-            installed_bytes = max(0, int(size)) * 1024
+            installed_bytes = max(0, int(size)) * 1024 if installed else 0
         except ValueError:
             installed_bytes = 0
         packages.append(KernelPackage(name, version, installed_bytes, kind, release,
-                                      kind.startswith("image") and not debug))
+                                      kind.startswith("image") and not debug, installed))
     return tuple(packages)
 
 
@@ -96,23 +99,37 @@ def package_owners(package: KernelPackage, releases: set[str]) -> set[str]:
             prefix = prefix.removesuffix("-common")
         elif package.kind == "headers" and prefix.endswith("-common-rt"):
             prefix = prefix.removesuffix("-common-rt") + "-rt"
-        return {release for release in releases
-                if (release == prefix or release.startswith(prefix + "-"))
-                and not (common and release.startswith(prefix + "-rt-"))}
+        owners = {release for release in releases
+                  if (release == prefix or release.startswith(prefix + "-"))
+                  and not (common and release.startswith(prefix + "-rt-"))}
+        # Orphaned common-header residuals can also form their own cleanup entry.
+        return owners or ({package.release} & releases)
     return {package.release} & releases
+
+
+def _kernel_releases(packages: tuple[KernelPackage, ...]) -> set[str]:
+    # A removed image may already be gone from dpkg while its modules retain
+    # configuration. Keep those releases visible without treating them as a
+    # bootable fallback. Shared residuals join their owners, or an orphan entry.
+    releases = {package.release for package in packages
+                if package.image or (not package.installed
+                                     and package.kind not in {"headers", "tools", "cloud-tools"})}
+    return releases | {package.release for package in packages
+                       if not package.installed and not package_owners(package, releases)}
 
 
 def group_installed_kernels(packages: Iterable[KernelPackage],
                            running: str) -> list[InstalledKernel]:
     packages = tuple(packages)
-    releases = {package.release for package in packages if package.image}
+    releases = _kernel_releases(packages)
+    installed = {package.release for package in packages if package.image and package.installed}
     kernels = []
     for release in sorted(releases, key=lambda value: (tuple(map(int, re.findall(r"\d+", value))), value),
                           reverse=True):
         members = [package for package in packages if release in package_owners(package, releases)]
         kernels.append(InstalledKernel(release, tuple(sorted(package.name for package in members)),
                                        sum(package.installed_bytes for package in members),
-                                       release == running))
+                                       release == running, release in installed))
     return kernels
 
 
@@ -124,12 +141,13 @@ def create_removal_plan(releases: Iterable[str], packages: Iterable[KernelPackag
                         running: str) -> RemovalPlan:
     selected = set(releases)
     packages = tuple(packages)
-    available = {package.release for package in packages if package.image}
+    available = _kernel_releases(packages)
+    installed = {package.release for package in packages if package.image and package.installed}
     if not selected or not selected <= available:
         raise ValueError(tr("Die Kernel-Auswahl ist nicht mehr aktuell. Bitte die Liste aktualisieren."))
     if running in selected:
         raise ValueError(tr("Der aktuell laufende Kernel darf nicht deinstalliert werden."))
-    if not available - selected:
+    if installed and not installed - selected:
         raise ValueError(tr("Mindestens ein installierter Kernel muss erhalten bleiben."))
     members = []
     for package in packages:
@@ -150,7 +168,7 @@ def validate_removal_packages(arguments: list[str]) -> RemovalPlan:
     by_name = {package.name: package for package in snapshot}
     if any(name not in by_name for name in arguments):
         raise ValueError(tr("Entfernt werden nur vorhandene, versionsgebundene Kernel-Pakete."))
-    releases = {by_name[name].release for name in arguments if by_name[name].image}
+    releases = {by_name[name].release for name in arguments} & _kernel_releases(snapshot)
     plan = create_removal_plan(releases, snapshot, platform.release())
     if set(arguments) != set(plan.packages):
         raise ValueError(tr("Die Paketliste passt nicht zu den ausgewählten Kerneln. Bitte erneut prüfen."))
@@ -180,7 +198,7 @@ def validate_apt_removal(output: str, packages: tuple[str, ...]) -> None:
 
 def simulate_removal(plan: RemovalPlan) -> None:
     result = subprocess.run(["/usr/bin/apt-get", "--simulate", "--no-auto-remove",
-                             "remove", "--", *plan.packages], capture_output=True, text=True,
+                             "purge", "--", *plan.packages], capture_output=True, text=True,
                             timeout=60, env={**os.environ, "LC_ALL": "C"})
     if result.returncode:
         details = "\n".join((result.stdout + result.stderr).splitlines()[-15:])

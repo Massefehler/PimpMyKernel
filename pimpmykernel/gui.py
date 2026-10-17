@@ -197,14 +197,14 @@ class RemoveKernelsDialog(QDialog):
         layout.setSpacing(16)
         layout.addWidget(label(tr("Ausgewählte Kernel deinstallieren"), "heading"))
         layout.addWidget(label(tr("Kernel: ") + ", ".join(plan.releases), wrap=True))
-        layout.addWidget(label(tr("Diese Pakete werden mit APT entfernt. Dafür erscheint die "
+        layout.addWidget(label(tr("Diese Pakete werden einschließlich ihrer Konfigurationsdateien mit APT entfernt. Dafür erscheint die "
                                "Passwortabfrage deines Systems."), "muted", True))
         files = QPlainTextEdit("\n".join(plan.packages))
         files.setReadOnly(True)
         files.setMaximumHeight(180)
         layout.addWidget(files)
         layout.addWidget(label(tr('Der laufende Kernel {running} bleibt erhalten. Gespeicherte .deb-Dateien und Build-Protokolle bleiben im Exportordner verfügbar.', running=running), "muted", True))
-        self.accept_box = QCheckBox(tr("Ich habe die Paketliste geprüft und möchte diese Kernel deinstallieren."))
+        self.accept_box = QCheckBox(tr("Ich habe die Paketliste geprüft und möchte diese Kernel einschließlich ihrer Konfigurationsdateien entfernen."))
         layout.addWidget(self.accept_box)
         controls = QDialogButtonBox()
         back = controls.addButton(tr("Zurück"), QDialogButtonBox.ButtonRole.RejectRole)
@@ -616,7 +616,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(18)
-        layout.addWidget(label(tr("Verwalte die installierten Kernel und entferne nicht mehr benötigte Versionen."), "muted", True))
+        layout.addWidget(label(tr("Verwalte die installierten Kernel und bereinige nicht mehr benötigte Versionen und Konfigurationsreste."), "muted", True))
         notice, notice_layout = card("notice")
         notice_layout.addWidget(label(tr('Laufender Kernel: {kernel} · geschützt', kernel=self.system.kernel), "heading"))
         notice_layout.addWidget(label(tr("Der laufende Kernel kann nicht ausgewählt werden. Mindestens ein "
@@ -631,13 +631,13 @@ class MainWindow(QMainWindow):
         layout.addLayout(header)
         self.kernel_list = QListWidget()
         self.kernel_list.setSpacing(2)
-        self.kernel_list.setAccessibleName(tr("Installierte Kernel zur Deinstallation auswählen"))
+        self.kernel_list.setAccessibleName(tr("Kernel und Konfigurationsreste zur Deinstallation auswählen"))
         self.kernel_list.itemChanged.connect(self.update_kernel_selection)
         layout.addWidget(self.kernel_list, 1)
         self.kernel_error = label("", "error", True)
         self.kernel_error.hide()
         layout.addWidget(self.kernel_error)
-        layout.addWidget(label(tr("Zugehörige Image-, Modul- und Header-Pakete werden zusammen angezeigt. "
+        layout.addWidget(label(tr("Zugehörige Image-, Modul- und Header-Pakete werden mitsamt ihren Konfigurationsdateien entfernt. "
                                "Gemeinsam verwendete Header bleiben für andere Kernel erhalten. "
                                "Vor dem Entfernen kannst du die genaue Paketliste prüfen."), "small", True))
         actions = QHBoxLayout()
@@ -931,7 +931,7 @@ class MainWindow(QMainWindow):
         self.kernel_error.hide()
         self._launch_worker("kernels", lambda w: installed_kernels(), self.on_installed_kernels)
         self.set_busy(True)
-        self.kernel_selection.setText(tr("Installierte Kernel werden gelesen …"))
+        self.kernel_selection.setText(tr("Kernel und Konfigurationsreste werden gelesen …"))
 
     def on_installed_kernels(self, kernels: list[InstalledKernel]):
         checked = set(self.selected_kernel_releases())
@@ -939,14 +939,20 @@ class MainWindow(QMainWindow):
         self.kernels_stale = False
         self.kernel_list.blockSignals(True)
         self.kernel_list.clear()
+        installed_count = sum(kernel.installed for kernel in kernels)
         for kernel in kernels:
-            protected = kernel.active or len(kernels) == 1
-            status = tr(" · aktiv, geschützt") if kernel.active else tr(" · letzter installierter Kernel, geschützt") if protected else ""
+            protected = kernel.active or (kernel.installed and installed_count == 1)
+            status = (tr(" · aktiv, geschützt") if kernel.active else
+                      tr(" · letzter installierter Kernel, geschützt") if protected else
+                      tr(" · Konfigurationsreste") if not kernel.installed else "")
             size = kernel.installed_bytes / 1024**2
             size_text = format_number(size)
             packages = plural("{count} Paket", "{count} Pakete", len(kernel.packages))
-            item = QListWidgetItem(tr("Linux {release}{status}\n{packages} · {size} MiB installiert",
-                                     release=kernel.release, status=status, packages=packages, size=size_text) +
+            description = (tr("Linux {release}{status}\n{packages} · {size} MiB installiert",
+                              release=kernel.release, status=status, packages=packages, size=size_text)
+                           if kernel.installed else tr("Linux {release}{status}\n{packages}",
+                                                       release=kernel.release, status=status, packages=packages))
+            item = QListWidgetItem(description +
                                    (tr("\nDieser Kernel läuft gerade und kann nicht entfernt werden.") if kernel.active else ""))
             item.setData(Qt.ItemDataRole.UserRole, kernel)
             protection = (tr('Linux {release} ist der aktuell laufende Kernel.\nEr kann nicht entfernt werden, solange er läuft.\n\n', release=kernel.release) if kernel.active else
@@ -959,18 +965,24 @@ class MainWindow(QMainWindow):
                 item.setCheckState(Qt.CheckState.Checked if kernel.release in checked else Qt.CheckState.Unchecked)
             self.kernel_list.addItem(item)
         self.kernel_list.blockSignals(False)
-        self.kernel_count.setText(plural("{count} installierter Kernel", "{count} installierte Kernel", len(kernels)))
+        count_text = plural("{count} installierter Kernel", "{count} installierte Kernel", installed_count)
+        residual_count = len(kernels) - installed_count
+        if residual_count:
+            count_text += " · " + plural("{count} Eintrag mit Konfigurationsresten",
+                                         "{count} Einträge mit Konfigurationsresten", residual_count)
+        self.kernel_count.setText(count_text)
         self.kernel_error.hide()
         self.update_kernel_selection()
-        self.footer_status.setText(tr("Liste der installierten Kernel aktualisiert"))
+        self.footer_status.setText(tr("Kernel-Liste aktualisiert"))
 
     def selected_kernel_releases(self) -> tuple[str, ...]:
         selected = []
+        installed_count = sum(kernel.installed for kernel in self.kernels)
         for row in range(self.kernel_list.count()):
             item = self.kernel_list.item(row)
             kernel = item.data(Qt.ItemDataRole.UserRole)
             if (item.checkState() == Qt.CheckState.Checked and not kernel.active
-                    and len(self.kernels) > 1):
+                    and (not kernel.installed or installed_count > 1)):
                 selected.append(kernel.release)
         return tuple(selected)
 
@@ -981,7 +993,7 @@ class MainWindow(QMainWindow):
         if selected:
             self.kernel_selection.setText(tr("Zur Deinstallation ausgewählt: {count}", count=len(selected)))
         elif not self.kernels and not self.kernels_stale:
-            self.kernel_selection.setText(tr("Keine installierten Kernel-Images gefunden."))
+            self.kernel_selection.setText(tr("Keine installierten Kernel oder Konfigurationsreste gefunden."))
         else:
             self.kernel_selection.setText(tr("Noch keine Kernel zur Deinstallation ausgewählt"))
 
@@ -1011,14 +1023,14 @@ class MainWindow(QMainWindow):
         self.navigate(2)
         self.started_at = time.monotonic()
         self.stage_title.setText(tr("Ausgewählte Kernel werden deinstalliert"))
-        self.stage_detail.setText(tr("Bitte die Administratorabfrage bestätigen. APT entfernt die ausgewählten Pakete."))
+        self.stage_detail.setText(tr("Bitte die Administratorabfrage bestätigen. APT entfernt die ausgewählten Pakete und ihre Konfigurationsdateien."))
         self.stage_step.setText(tr("Kernelpflege · ") + ", ".join(plan.releases))
         self.progress_bar.setRange(0, 0)
 
         def done(_):
             self.kernels_stale = True
             self.stage_title.setText(tr("Kernel deinstalliert"))
-            self.stage_detail.setText(tr("Die ausgewählten Kernel wurden entfernt. Exportierte .deb-Dateien bleiben erhalten."))
+            self.stage_detail.setText(tr("Die ausgewählten Kernel-Pakete und ihre Konfigurationsdateien wurden entfernt. Exportierte .deb-Dateien bleiben erhalten."))
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(100)
             self.navigate(PAGE_INSTALLED)

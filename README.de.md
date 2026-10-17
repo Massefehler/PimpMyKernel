@@ -17,12 +17,16 @@ Das fertige App-Paket gibt es unter
 Die `.deb` herunterladen und im Downloadordner installieren:
 
 ```bash
-sudo apt install ./pimpmykernel_0.1.8_all.deb
+sudo apt install ./pimpmykernel_0.2.0_all.deb
 ```
 
 Danach **PimpMyKernel** im Anwendungsmenü öffnen oder `pimpmykernel` ausführen.
 Die Oberfläche immer als normalen Benutzer starten. Eine grafische
 Administratorabfrage erscheint nur bei Aktionen, die sie benötigen.
+
+Bei einem App-Update wird der Python-Programmcache automatisch erneuert, auch
+bei Resten älterer Versionen. PimpMyKernel nach der Installation eines Updates
+schließen und wieder öffnen. Ein Systemneustart ist dafür nicht erforderlich.
 
 Für jede neue Version das App-Paket wieder erstellen:
 
@@ -35,7 +39,7 @@ schreibt nach `dist/`. Für einen anderen Zielordner:
 `./build-deb.sh --output /pfad/zum/ordner`. `SOURCE_DATE_EPOCH` kann für
 reproduzierbare Paket-Metadaten gesetzt werden.
 Ein selbst erstelltes App-Paket wird mit
-`sudo apt install ./dist/pimpmykernel_0.1.8_all.deb` installiert.
+`sudo apt install ./dist/pimpmykernel_0.2.0_all.deb` installiert.
 
 ## Systemsprache und manuelle Sprachauswahl
 
@@ -165,7 +169,18 @@ Die Rubrik **Installierte Kernel** liest die tatsächlich installierten Pakete
 aus der Debian-Paketdatenbank. Pro Kernel werden die Version, die zugehörigen
 Pakete und deren installierte Größe angezeigt. Über die Auswahlkästchen können
 mehrere ältere Kernel ausgewählt und mit **Ausgewählte Kernel deinstallieren**
-entfernt werden.
+entfernt werden. Dabei verwendet APT **`purge`**: Die ausgewählten Pakete werden
+einschließlich ihrer Paket-Konfigurationsdateien entfernt. Der Bestätigungsdialog
+weist ausdrücklich darauf hin.
+
+Bereits früher entfernte Kernel-Pakete mit dem dpkg-Status **`config-files`**
+werden als **Konfigurationsreste** angezeigt und können gezielt bereinigt werden.
+Das gilt auch für zurückgebliebene Modul-Pakete, deren Kernel-Image bereits
+vollständig entfernt wurde. Solche Einträge zählen nicht als installierter
+Ersatzkernel; der letzte tatsächlich installierte Kernel bleibt geschützt.
+Der Status `config-files` kann auch nur verbliebene Paketverwaltungsskripte
+bezeichnen und belegt nicht, dass noch eine `/boot/config-*` vorhanden ist.
+Diese Dateien gehören normalerweise zum regulären Kernel-Paketinhalt.
 
 Der laufende Kernel trägt die sichtbare Notiz **„Dieser Kernel läuft gerade und
 kann nicht entfernt werden.“** und kann nicht zur Deinstallation ausgewählt
@@ -177,7 +192,7 @@ versionsgebundene Werkzeuge werden mit entfernt. Gemeinsam verwendete Header
 und Werkzeuge bleiben für andere installierte Kernel erhalten; allgemeine Pakete wie
 `linux-libc-dev` werden nicht entfernt.
 
-Vor der Bestätigung prüft eine APT-Simulation die konkrete Paketliste. Würde
+Vor der Bestätigung prüft eine APT-Purge-Simulation die konkrete Paketliste. Würde
 APT weitere Pakete entfernen, etwa die Meta-Pakete für automatische
 Distributions-Kernel-Updates, wird die Deinstallation mit einer Erklärung
 gestoppt. Im Bestätigungsdialog wird die genaue Liste gezeigt. Erst nach der
@@ -270,7 +285,7 @@ Anwendungsmenü-Eintrag an. Bei Installation des `.deb` ist das nicht nötig.
 ./start.sh --list-releases
 QT_QPA_PLATFORM=offscreen python3 -m unittest discover -s tests -v
 ./build-deb.sh
-dpkg-deb --info dist/pimpmykernel_0.1.8_all.deb
+dpkg-deb --info dist/pimpmykernel_0.2.0_all.deb
 ```
 
 Die Tests prüfen den vollständigen Ablauf mit einem lokalen Test-Kernel und
@@ -280,7 +295,10 @@ Archiv-Auswahl wird auf signierte Dateipaare, Versionssortierung, alle
 Kernelreihen, kombinierte Filter, Abbruch und Wiederholung nach Ladefehlern geprüft. Die
 Kernelverwaltung wird mit lokalen Paketdaten und simulierten APT-Plänen geprüft,
 einschließlich Schutz des laufenden und letzten Kernels sowie gemeinsam
-verwendeter Header. Die Tests installieren oder deinstallieren keinen Kernel.
+verwendeter Header. Zusätzlich werden die Entfernung einschließlich
+Paket-Konfigurationsdateien und die gezielte Bereinigung alter `config-files`-Einträge
+geprüft. Konfigurationsreste dürfen den Schutz des letzten installierten Kernels
+nicht aufheben. Die Tests installieren oder deinstallieren keinen Kernel.
 Die menuconfig-Tests prüfen einen echten Terminalkanal mit Tastatureingabe,
 Fehler und vorzeitiges Schließen des Terminals, den Abbruch einschließlich
 untergeordneter Prozesse, die Änderungsprüfung vor der Kompilierung und den
@@ -289,6 +307,13 @@ Die Sprachtests prüfen Deutsch, Englisch und Spanisch auf vollständige
 Übersetzungen, unveränderte Platzhalter, automatische Spracherkennung und
 gespeicherte Auswahl nach einem Neustart. Sie prüfen auch die übersetzten
 Kernel-Schutzmeldungen, Standarddialoge und Terminal-Hinweise.
+
+Die Paketierungstests bauen und entpacken das echte App-`.deb` und führen dessen
+Installations- und Entfernungsskripte in einem temporären Verzeichnis aus. Sie
+stellen ein Upgrade mit identischen Quellcode-Zeitstempeln und Dateigrößen nach,
+prüfen die Erneuerung des Python-Programmcaches und den Erhalt von Quellcode und
+Exporten beim Bereinigen. Dabei wird die App nicht auf dem Testsystem installiert.
+
 Der optionale Test `python3 tests/live_prepare.py --config /boot/config-<version>`
 lädt einen echten Kernel, prüft die Release-Signatur und führt die Übernahme der
 gewählten Konfiguration einschließlich Zertifikatbereinigung aus. Er kompiliert

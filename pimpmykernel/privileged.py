@@ -91,7 +91,7 @@ def main() -> int:
         plan = validate_removal_packages(arguments)
         simulate_removal(plan)
         return subprocess.call(["/usr/bin/apt-get", "--yes", "--no-auto-remove",
-                                "remove", "--", *plan.packages])
+                                "purge", "--", *plan.packages])
     raise ValueError(tr("Unbekannte oder ungültige Administratoraktion."))
 
 

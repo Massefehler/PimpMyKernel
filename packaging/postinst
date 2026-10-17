@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+    # Reproducible source timestamps can match a previous release. Discard all
+    # old cache variants and rebuild instead of trusting timestamps and sizes.
+    py3clean "/usr/lib/pimpmykernel"
+    py3compile -f "/usr/lib/pimpmykernel"
+fi
+
+exit 0
